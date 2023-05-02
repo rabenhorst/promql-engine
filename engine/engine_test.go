@@ -6,6 +6,7 @@ package engine_test
 import (
 	"context"
 	"fmt"
+	"github.com/stretchr/testify/require"
 	"math"
 	"os"
 	"reflect"
@@ -4020,10 +4021,10 @@ func TestNativeHistograms(t *testing.T) {
 			name:  "plain selector",
 			query: "native_histogram_series",
 		},
-		{
-			name:  "irate()",
-			query: "irate(native_histogram_series[1m])",
-		},
+		//{
+		//	name:  "irate()",
+		//	query: "irate(native_histogram_series[1m])",
+		//},
 		{
 			name:  "rate()",
 			query: "rate(native_histogram_series[1m])",
@@ -4322,6 +4323,51 @@ func TestMixedNativeHistogramTypes(t *testing.T) {
 		expected.CounterResetHint = histogram.GaugeType
 		testutil.Equals(t, expected, actual[0].Histograms[0].H)
 	})
+}
+
+func TestNativeHistogramIRate(t *testing.T) {
+	test, err := promql.NewTest(t, "")
+	require.NoError(t, err)
+	defer test.Close()
+
+	seriesName := "native_histogram_series"
+	lbls := labels.FromStrings("__name__", seriesName)
+
+	app := test.Storage().Appender(context.TODO())
+	histograms := tsdbutil.GenerateTestHistograms(4)
+	for i, h := range histograms {
+		_, err := app.AppendHistogram(0, lbls, int64(i)*int64(15*time.Second/time.Millisecond), h, nil)
+		require.NoError(t, err)
+	}
+	require.NoError(t, app.Commit())
+
+	require.NoError(t, test.Run())
+
+	opts := promql.EngineOpts{
+		Timeout:              1 * time.Hour,
+		MaxSamples:           1e10,
+		EnableNegativeOffset: true,
+		EnableAtModifier:     true,
+	}
+
+	engine := engine.New(engine.Opts{
+		EngineOpts:        opts,
+		DisableFallback:   true,
+		LogicalOptimizers: logicalplan.AllOptimizers,
+	})
+
+	queryString := fmt.Sprintf("irate(%s[1m])", seriesName)
+	qry, err := engine.NewInstantQuery(test.Context(), test.Queryable(), nil, queryString, timestamp.Time(int64(1*time.Minute/time.Millisecond)))
+	require.NoError(t, err)
+	res := qry.Exec(test.Context())
+	require.NoError(t, res.Err)
+	vector, err := res.Vector()
+	require.NoError(t, err)
+	require.Len(t, vector, 1)
+	actualHistogram := vector[0].H
+	expectedHistogram := histograms[3].ToFloat().Sub(histograms[2].ToFloat())
+	expectedHistogram.CounterResetHint = histogram.GaugeType
+	require.Equal(t, expectedHistogram, actualHistogram)
 }
 
 func sortByLabels(r *promql.Result) {

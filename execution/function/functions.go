@@ -249,6 +249,15 @@ var Funcs = map[string]FunctionCall{
 		}
 	},
 	"irate": func(f FunctionArgs) promql.Sample {
+		if len(f.Samples) >= 2 && f.Samples[len(f.Samples)-2].H != nil && f.Samples[len(f.Samples)-1].H != nil {
+			f.Samples = f.Samples[len(f.Samples)-2:]
+			h := histogramRate(f.Samples, true)
+			return promql.Sample{
+				Metric: f.Labels,
+				T:      f.StepTime,
+				H:      h,
+			}
+		}
 		f.Samples = filterFloatOnlySamples(f.Samples)
 		if len(f.Samples) < 2 {
 			return InvalidSample
