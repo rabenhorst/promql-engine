@@ -5,12 +5,12 @@ package logicalplan
 
 import (
 	"fmt"
+	"github.com/go-kit/log/level"
+	"github.com/prometheus/prometheus/model/labels"
 	"math"
 	"sort"
 	"strings"
 	"time"
-
-	"github.com/prometheus/prometheus/model/labels"
 
 	"github.com/thanos-io/promql-engine/api"
 	"github.com/thanos-io/promql-engine/parser"
@@ -233,7 +233,13 @@ func (m DistributedExecutionOptimizer) distributeQuery(expr *parser.Expr, engine
 	}
 
 	startOffset := calculateStartOffset(expr, opts.LookbackDelta)
-	if allowedStartOffset < maxDuration(opts.LookbackDelta, startOffset) {
+	maxDuration := maxDuration(opts.LookbackDelta, startOffset)
+	if allowedStartOffset < maxDuration {
+		level.Debug(opts.Logger).Log("msg", "Engine is falling back to the store api",
+			"allowed_start_offset_seconds", allowedStartOffset.Seconds(),
+			"start_offset_seconds", startOffset.Seconds(),
+			"lookback_delta_seconds", opts.LookbackDelta.Seconds(),
+			"max_duration_seconds", maxDuration.Seconds())
 		return *expr
 	}
 
@@ -252,6 +258,17 @@ func (m DistributedExecutionOptimizer) distributeQuery(expr *parser.Expr, engine
 
 		start, keep := getStartTimeForEngine(e, opts, startOffset, globalMinT)
 		if !keep {
+			lbls := make([]string, 0)
+			for _, lb := range e.LabelSets() {
+				lbls = append(lbls, lb.String())
+			}
+			level.Debug(opts.Logger).Log("msg", "Remote Engine not selected",
+				"start_offset_seconds", startOffset.Seconds(),
+				"lookback_delta_seconds", opts.LookbackDelta.Seconds(),
+				"global_minT_seconds", globalMinT,
+				"query_start_time", opts.Start.UTC(),
+				"query_end_time", opts.End.UTC(),
+				"labels", strings.Join(lbls, ","))
 			continue
 		}
 
@@ -263,6 +280,7 @@ func (m DistributedExecutionOptimizer) distributeQuery(expr *parser.Expr, engine
 	}
 
 	if len(remoteQueries) == 0 {
+		level.Debug(opts.Logger).Log("msg", "Noop operation, reomte queriers count is zero")
 		return Noop{}
 	}
 
