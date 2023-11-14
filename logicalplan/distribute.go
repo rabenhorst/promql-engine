@@ -24,7 +24,7 @@ type timeRange struct {
 type timeRanges []timeRange
 
 // minOverlap returns the smallest overlap between consecutive time ranges.
-func (trs timeRanges) minOverlap() time.Duration {
+func (trs timeRanges) minOverlap(opts *Opts) time.Duration {
 	var minEngineOverlap time.Duration = math.MaxInt64
 	if len(trs) == 1 {
 		return minEngineOverlap
@@ -35,7 +35,14 @@ func (trs timeRanges) minOverlap() time.Duration {
 		if overlap < minEngineOverlap {
 			minEngineOverlap = overlap
 		}
+		level.Debug(opts.Logger).Log("msg", "Engine is falling back to the store api",
+			"index", i,
+			"end", trs[i-1].end.UTC(),
+			"start", trs[i].start.UTC(),
+			"min_range_over_lap", minEngineOverlap)
 	}
+	level.Debug(opts.Logger).Log("msg", "Engine is falling back to the store api",
+		"min_range_over_lap", minEngineOverlap)
 	return minEngineOverlap
 }
 
@@ -46,10 +53,13 @@ func (lrs labelSetRanges) addRange(key string, tr timeRange) {
 }
 
 // minOverlap returns the smallest overlap between all label set ranges.
-func (lrs labelSetRanges) minOverlap() time.Duration {
+func (lrs labelSetRanges) minOverlap(opts *Opts) time.Duration {
 	var minLabelsetOverlap time.Duration = math.MaxInt64
+	level.Debug(opts.Logger).Log("msg", "Engine is falling back to the store api",
+		"label_set_range", len(lrs))
+
 	for _, lr := range lrs {
-		minRangeOverlap := lr.minOverlap()
+		minRangeOverlap := lr.minOverlap(opts)
 		if minRangeOverlap < minLabelsetOverlap {
 			minLabelsetOverlap = minRangeOverlap
 		}
@@ -154,7 +164,7 @@ func (m DistributedExecutionOptimizer) Optimize(plan parser.Expr, opts *Opts) pa
 			})
 		}
 	}
-	minEngineOverlap := labelRanges.minOverlap()
+	minEngineOverlap := labelRanges.minOverlap(opts)
 
 	TraverseBottomUp(nil, &plan, func(parent, current *parser.Expr) (stop bool) {
 		// If the current operation is not distributive, stop the traversal.
