@@ -307,7 +307,7 @@ dedup(
 			expr, err := parser.ParseExpr(tcase.expr)
 			testutil.Ok(t, err)
 
-			plan := New(expr, &Opts{Start: queryStart, End: queryEnd, Step: queryStep})
+			plan := New(expr, &Opts{Start: queryStart, End: queryEnd, Step: queryStep, Logger: log.NewNopLogger()})
 			optimizedPlan := plan.Optimize(optimizers)
 			expectedPlan := cleanUp(replacements, tcase.expected)
 			testutil.Equals(t, expectedPlan, optimizedPlan.Expr().String())
